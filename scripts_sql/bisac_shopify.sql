@@ -1,0 +1,47 @@
+-- Script para cargar datos de BISAC desde Excel
+-- Generado automáticamente
+
+INSERT INTO bisac (codigo, categoria, tag_shopify) VALUES ('FIC', 'Fiction / General', 'ficcion');
+INSERT INTO bisac (codigo, categoria, tag_shopify) VALUES ('FIC004', 'Fiction / Classics', 'ficcion, literatura, clasicos');
+INSERT INTO bisac (codigo, categoria, tag_shopify) VALUES ('POE000', 'Poetry / General', 'ficcion, literatura, poesia');
+INSERT INTO bisac (codigo, categoria, tag_shopify) VALUES ('PER011', 'Performing Arts / Theater / General', 'ficcion, literatura, teatro');
+INSERT INTO bisac (codigo, categoria, tag_shopify) VALUES ('FIC029', 'Fiction / Short Stories (single author)', 'ficcion, literatura, cuentos cortos');
+INSERT INTO bisac (codigo, categoria, tag_shopify) VALUES ('FIC019', 'Fiction / Literary', 'ficcion, generos literarios');
+INSERT INTO bisac (codigo, categoria, tag_shopify) VALUES ('FIC027', 'Fiction / Romance / General', 'ficcion, generos literarios, novela romantica');
+INSERT INTO bisac (codigo, categoria, tag_shopify) VALUES ('FIC014', 'Fiction / Historical', 'ficcion, generos literarios, novela historica');
+INSERT INTO bisac (codigo, categoria, tag_shopify) VALUES ('FIC028', 'Fiction / Science Fiction / General', 'ficcion, generos literarios, fantastica y ciencia ficcion, fantastica, ciencia ficcion');
+INSERT INTO bisac (codigo, categoria, tag_shopify) VALUES ('FIC030', 'Fiction / Thrillers / Suspense', 'ficcion, generos literarios, misterio y suspenso, misterio, suspenso');
+INSERT INTO bisac (codigo, categoria, tag_shopify) VALUES ('FIC022', 'Fiction / Mystery & Detective / General', 'ficcion, generos literarios, misterio y suspenso, misterio, suspenso');
+INSERT INTO bisac (codigo, categoria, tag_shopify) VALUES ('CGN', 'Comics & Graphic Novels / General', 'ficcion, novela grafica');
+INSERT INTO bisac (codigo, categoria, tag_shopify) VALUES ('SCI', 'Science / General', 'no ficcion, ciencias y tecnologia, ciencias, cientifica');
+INSERT INTO bisac (codigo, categoria, tag_shopify) VALUES ('SCI086', 'Science / Life Sciences / General', 'no ficcion, ciencias y tecnologia, medicina y salud, salud');
+INSERT INTO bisac (codigo, categoria, tag_shopify) VALUES ('SEL', 'Self-Help / General', 'no ficcion, humanidades, autoayuda, espiritualidad');
+INSERT INTO bisac (codigo, categoria, tag_shopify) VALUES ('OCC', 'Body, Mind & Spirit / General', 'no ficcion, humanidades, autoayuda, espiritualidad');
+INSERT INTO bisac (codigo, categoria, tag_shopify) VALUES ('BUS', 'Business & Economics / General', 'no ficcion, humanidades, economia, empresa');
+INSERT INTO bisac (codigo, categoria, tag_shopify) VALUES ('PSY', 'Psychology / General', 'no ficcion, humanidades, psicologia');
+INSERT INTO bisac (codigo, categoria, tag_shopify) VALUES ('EDU', 'Education / General', 'no ficcion, humanidades, pedagogia');
+INSERT INTO bisac (codigo, categoria, tag_shopify) VALUES ('BIO', 'Biography & Autobiography / General', 'no ficcion, historia, biografias');
+INSERT INTO bisac (codigo, categoria, tag_shopify) VALUES ('HIS', 'History / General', 'no ficcion, historia, historias');
+INSERT INTO bisac (codigo, categoria, tag_shopify) VALUES ('ART', 'Art / General', 'no ficcion, arte');
+INSERT INTO bisac (codigo, categoria, tag_shopify) VALUES ('ART057', 'Art / Film & Video', 'no ficcion, arte, fotografia');
+INSERT INTO bisac (codigo, categoria, tag_shopify) VALUES ('ARC', 'Architecture / General', 'no ficcion, arte, arquitectura');
+INSERT INTO bisac (codigo, categoria, tag_shopify) VALUES ('PER004', 'Performing Arts / Film & Video / General', 'no ficcion, arte, cine');
+INSERT INTO bisac (codigo, categoria, tag_shopify) VALUES ('DES', 'Design / General', 'no ficcion, arte, diseno, moda');
+INSERT INTO bisac (codigo, categoria, tag_shopify) VALUES ('ART015', 'Art / History / General', 'no ficcion, arte, historia del arte');
+INSERT INTO bisac (codigo, categoria, tag_shopify) VALUES ('MUS', 'Music / General', 'no ficcion, arte, musica');
+INSERT INTO bisac (codigo, categoria, tag_shopify) VALUES ('CKB', 'Cooking / General', 'no ficcion, estilo de vida, libros de cocina, cocina');
+INSERT INTO bisac (codigo, categoria, tag_shopify) VALUES ('SPO', 'Sports & Recreation / General', 'no ficcion, estilo de vida, deportes');
+INSERT INTO bisac (codigo, categoria, tag_shopify) VALUES ('PER', 'Performing Arts / General', 'no ficcion, estilo de vida, entretenimiento');
+INSERT INTO bisac (codigo, categoria, tag_shopify) VALUES ('CRA', 'Crafts & Hobbies / General', 'no ficcion, estilo de vida, manualidades');
+INSERT INTO bisac (codigo, categoria, tag_shopify) VALUES ('JUV038', 'Juvenile Fiction / Short Stories', 'infantil, libros infantiles, cuentos infantiles');
+INSERT INTO bisac (codigo, categoria, tag_shopify) VALUES ('JUV008', 'Juvenile Fiction / Comics & Graphic Novels / General', 'infantil, novela grafica ninos');
+INSERT INTO bisac (codigo, categoria, tag_shopify) VALUES ('GAM001', 'Games / Board', 'infantil, juegos de mesa');
+INSERT INTO bisac (codigo, categoria, tag_shopify) VALUES ('GAM005', 'Games / Logic & Brain Teasers', 'infantil, juegos didacticos, otros, papeleria y merchandising, juegos y puzzles');
+INSERT INTO bisac (codigo, categoria, tag_shopify) VALUES ('GAM007', 'Games / Puzzles', 'infantil, rompecabezas, otros, papeleria y merchandising, juegos y puzzles');
+INSERT INTO bisac (codigo, categoria, tag_shopify) VALUES ('JNF019', 'Juvenile Nonfiction / Family / General', 'infantil, imprescindibles infantiles, crianza positiva - valores');
+INSERT INTO bisac (codigo, categoria, tag_shopify) VALUES ('FAM016', 'Family & Relationships / Education', 'infantil, imprescindibles infantiles, crianza positiva - valores');
+INSERT INTO bisac (codigo, categoria, tag_shopify) VALUES ('JUV031', 'Juvenile Fiction / Performing Arts / General', 'infantil, imprescindibles infantiles, personajes infantiles');
+INSERT INTO bisac (codigo, categoria, tag_shopify) VALUES ('JUV040', 'Juvenile Fiction / Toys, Dolls, Puppets', 'infantil, imprescindibles infantiles, personajes infantiles');
+INSERT INTO bisac (codigo, categoria, tag_shopify) VALUES ('YAF', 'Young Adult Fiction', 'juvenil, jovenes lectores');
+INSERT INTO bisac (codigo, categoria, tag_shopify) VALUES ('YAN', 'Young Adult Non Fiction', 'juvenil, jovenes lectores');
+INSERT INTO bisac (codigo, categoria, tag_shopify) VALUES ('YAF026', 'Young Adult Fiction / Horror', 'juvenil, jovenes lectores, novela de terror');

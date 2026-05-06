@@ -1,0 +1,5 @@
+/.venv
+/__pycache__
+/archivos_json
+/archivos_onix
+/carga_shopify.csv
