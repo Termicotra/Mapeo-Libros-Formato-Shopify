@@ -9,7 +9,7 @@ CREATE TABLE IF NOT EXISTS onix (
     id_onix INTEGER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
     isbn VARCHAR(20) NOT NULL UNIQUE,
     tipo_tapa VARCHAR(50),
-    titulo VARCHAR(255),
+    titulo TEXT,
     autor VARCHAR(255),
     lenguaje VARCHAR(50),
     audiencia VARCHAR(50),
@@ -28,7 +28,7 @@ CREATE TABLE IF NOT EXISTS onix (
 
 CREATE TABLE archivo (
     id_archivo INTEGER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
-    nombre TEXT,
+    nombre TEXT UNIQUE,
     proveedor TEXT,
     onix_version TEXT
 );

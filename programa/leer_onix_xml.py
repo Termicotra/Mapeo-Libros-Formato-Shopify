@@ -12,22 +12,26 @@ from xml.etree import ElementTree as ET
 from connect_postgres import open_connection
 
 
-KNOWN_TAG_FIELDS = {
-    "b244": "isbn",
-    "b012": "tipo_tapa",
-    "b030": "prefijo",
-    "x409": "tipo_titulo",  
-    "b031": "titulo",
-    "b203": "titulo_completo",
-    "b036": "autor",
-    "b252": "lenguaje",
-    "b204": "audiencia",
-    "d104": "descripcion_html",
-    "x435": "url_tapa",
-    "x300": "proveedor_onix",
-    "b081": "editorial",
-    "b069": "bisac_codigo",
-    "b070": "bisac_categoria",
+TAG_ALIASES = {
+    "b244": ("idvalue",),  # ISBN
+    "b221": ("productidtype",),  # Tipo de id de producto (ISBN, etc.)
+    "b012": ("productform",),  # Tipo_Tapa
+    "b030": ("titleprefix",),  # Prefijo del título
+    "x409": ("titleelementlevel",),  # Tipo_Titulo
+    "b031": ("titlewithoutprefix",),  # Título sin prefijo
+    "b029": ("subtitle",),  # Subtítulo
+    "b203": ("titletext",),  # Título completo
+    "b036": ("contributorname", "personname"),  # Autor principal
+    "b252": ("languagecode",),  # Lenguaje del texto
+    "b204": ("audiencecodetype", "audiencecode",),  # Audiencia
+    "x426": ("texttype",), #Tipo de texto de la descripción (para filtrar solo Texto largo)
+    "d104": ("text",),  # Descripción HTML
+    "x435": ("resourcelink",),  # URL de la imagen de tapa
+    "x300": ("addresseename",),  # Proveedor
+    "b081": ("publishername",),  # Editorial
+    "b067": ("subjectschemeidentifier",),  # Tipo de código BISAC
+    "b069": ("subjectcode",),  # Código BISAC
+    "b070": ("subjectheadingtext",),  # Categoría BISAC
 }
 
 
@@ -37,6 +41,13 @@ def _local_name(tag: str) -> str:
     return tag
 
 
+def _is_tag(element: ET.Element, tag_name: str) -> bool:
+    """Return True if element's local name matches tag_name or any of its aliases."""
+    candidate_names = [tag_name, *TAG_ALIASES.get(tag_name.lower(), ())]
+    candidate_names = {candidate.lower() for candidate in candidate_names if candidate}
+    return _local_name(element.tag).lower() in candidate_names
+
+
 def _clean_text(value: str | None) -> str:
     if not value:
         return ""
@@ -44,18 +55,21 @@ def _clean_text(value: str | None) -> str:
 
 
 def _iter_product_elements(root: ET.Element) -> Iterable[ET.Element]:
-    if _local_name(root.tag) == "product":
+    if _is_tag(root, "product"):
         yield root
         return
 
     for element in root.iter():
-        if _local_name(element.tag) == "product":
+        if _is_tag(element, "product"):
             yield element
 
 
 def _first_text(element: ET.Element, tag_name: str) -> str:
+    candidate_names = [tag_name, *TAG_ALIASES.get(tag_name.lower(), ())]
+    candidate_names = {candidate.lower() for candidate in candidate_names if candidate}
+
     for child in element.iter():
-        if _local_name(child.tag) == tag_name:
+        if _local_name(child.tag).lower() in candidate_names:
             return _clean_text(child.text)
     return ""
 
@@ -159,7 +173,7 @@ def _bisac_entries(product: ET.Element, limit: int = 5) -> list[dict[str, str]]:
     entries: list[dict[str, str]] = []
 
     for subject in product.iter():
-        if _local_name(subject.tag) != "subject":
+        if not _is_tag(subject, "subject"):
             continue
 
         scheme_code = _first_text(subject, "b067")
@@ -190,7 +204,7 @@ def _extract_onix_version(root: ET.Element) -> str:
     """Extract ONIX version from release attribute in ONIXMessage element."""
     for element in root.iter():
         # Case-insensitive tag name comparison
-        if _local_name(element.tag).lower() == "onixmessage":
+        if _is_tag(element, "onixmessage"):
             release = element.get("release", "").strip()
             if release:
                 return release
@@ -199,12 +213,11 @@ def _extract_onix_version(root: ET.Element) -> str:
 
 def _extract_proveedor(root: ET.Element) -> str:
     """Extract proveedor from x300 (AddresseeName) tag."""
-    for element in root.iter():
-        if _local_name(element.tag) == "x300":
-            proveedor = _clean_text(element.text)
-            if proveedor:
-                return proveedor
-    return ""
+    # Prefer direct element match (accepting aliases), fallback to _first_text
+    for elem in root.iter():
+        if _is_tag(elem, "x300"):
+            return _clean_text(elem.text)
+    return _first_text(root, "x300")
 
 
 def _insert_archivo(
@@ -228,16 +241,29 @@ def _insert_archivo(
             with conn.cursor() as cur:
                 cur.execute(
                     """
-                    INSERT INTO archivo (nombre, proveedor, onix_version)
-                    VALUES (%s, %s, %s)
-                    RETURNING id_archivo
+                    WITH inserted AS (
+                        INSERT INTO archivo (nombre, proveedor, onix_version)
+                        VALUES (%s, %s, %s)
+                        ON CONFLICT (nombre) DO NOTHING
+                        RETURNING id_archivo
+                    )
+                    SELECT id_archivo
+                    FROM inserted
+                    UNION ALL
+                    SELECT id_archivo
+                    FROM archivo
+                    WHERE nombre = %s
+                    LIMIT 1
                     """,
-                    (nombre, proveedor, onix_version),
+                    (nombre, proveedor, onix_version, nombre),
                 )
                 result = cur.fetchone()
                 id_archivo = result[0] if result else None
                 conn.commit()
                 return id_archivo
+    except Exception:
+        conn.rollback()
+        raise
     finally:
         conn.close()
 
@@ -246,8 +272,8 @@ def _build_titulo(product: ET.Element) -> str:
     """
     Build title according to rules:
     - Only consider titleelement with x409 = "01"
-    - If b203 exists: use b203
-    - If b203 doesn't exist: use b030 + b031
+    - If b203 exists: use b203 + b029
+    - If b203 doesn't exist: use b030 + b031 (+ b029 after b031)
     - If x409 = "02" exists, concatenate it to the title
     """
     titulo_parts = []
@@ -255,7 +281,7 @@ def _build_titulo(product: ET.Element) -> str:
 
     # Find all titleelement elements
     for title_element in product.iter():
-        if _local_name(title_element.tag) != "titleelement":
+        if not _is_tag(title_element, "titleelement"):
             continue
 
         x409 = _first_text(title_element, "x409")
@@ -264,28 +290,36 @@ def _build_titulo(product: ET.Element) -> str:
             b203 = _first_text(title_element, "b203")
             b030 = _first_text(title_element, "b030")
             b031 = _first_text(title_element, "b031")
+            b029 = _first_text(title_element, "b029")
 
             if b203:
                 titulo_parts.append(b203)
+                if b029:
+                    titulo_parts.append(b029)
             else:
                 if b030:
                     titulo_parts.append(b030)
                 if b031:
                     titulo_parts.append(b031)
+                if b029:
+                    titulo_parts.append(b029)
 
         elif x409 == "02":
             b203 = _first_text(title_element, "b203")
             b030 = _first_text(title_element, "b030")
             b031 = _first_text(title_element, "b031")
+            b029 = _first_text(title_element, "b029")
 
             if b203:
-                titulo_02 = b203
+                titulo_02 = " ".join(part for part in (b203, b029) if part).strip()
             else:
                 parts = []
                 if b030:
                     parts.append(b030)
                 if b031:
                     parts.append(b031)
+                if b029:
+                    parts.append(b029)
                 titulo_02 = " ".join(parts).strip()
 
     # Concatenate x409=02 if exists
@@ -293,6 +327,66 @@ def _build_titulo(product: ET.Element) -> str:
         titulo_parts.append(titulo_02)
 
     return " ".join(titulo_parts).strip()
+
+
+def _find_isbn_for_product(product: ET.Element, target_type: str = "15") -> str:
+    """
+    Find the IDValue (b244) that belongs to a ProductIdentifier whose
+    ProductIDType (b221) equals `target_type`. Returns empty string if
+    no matching ProductIdentifier is found.
+    """
+    for elem in product.iter():
+        if not _is_tag(elem, "productidentifier"):
+            continue
+
+        pid_type = _first_text(elem, "b221")
+        if str(pid_type).strip() == str(target_type):
+            return _clean_text(_first_text(elem, "b244"))
+
+    return ""
+
+
+def _extract_descripcion_html(product: ET.Element) -> str:
+    """
+    Extract the d104 text that follows x426=03.
+    If x426=03 does not exist, fall back to the d104 that follows x426=01.
+    If neither exists, return the first d104 found.
+    """
+    first_d104 = ""
+    descripcion_01 = ""
+    pending_texttype = ""
+
+    # Prepare candidate name sets including aliases (long tags)
+    x426_names = {n.lower() for n in ("x426", *TAG_ALIASES.get("x426", ())) if n}
+    d104_names = {n.lower() for n in ("d104", *TAG_ALIASES.get("d104", ())) if n}
+
+    for elem in product.iter():
+        tag_local = _local_name(elem.tag).lower()
+
+        if tag_local in x426_names:
+            pending_texttype = _clean_text(elem.text)
+            continue
+
+        if tag_local not in d104_names:
+            continue
+
+        descripcion = _clean_text(elem.text)
+        if not descripcion:
+            pending_texttype = ""
+            continue
+
+        if not first_d104:
+            first_d104 = descripcion
+
+        if pending_texttype == "03":
+            return descripcion
+
+        if pending_texttype == "01" and not descripcion_01:
+            descripcion_01 = descripcion
+
+        pending_texttype = ""
+
+    return descripcion_01 or first_d104
 
 
 def parse_product(
@@ -310,28 +404,20 @@ def parse_product(
         base_tags.append("books in english")
 
     record: dict[str, object] = {
-        "isbn": _first_text(product, "b244"),
+        # Use the ISBN only when it's the IDValue for a ProductIdentifier
+        # whose ProductIDType (b221) == 15 (per user requirement).
+        "isbn": _find_isbn_for_product(product, "15"),
         "tipo_tapa": _first_text(product, "b012"),
         "titulo": _build_titulo(product),
         "autor": _first_text(product, "b036"),
         "lenguaje": lenguaje,
         "audiencia": _first_text(product, "b204"),
-        "descripcion_html": "",
+        "descripcion_html": _extract_descripcion_html(product),
         "url_tapa": _first_text(product, "x435"),
         "editorial": _first_text(product, "b081"),
         "bisac": bisac_entries,
         "tag": _compose_final_tags(base_tags),
     }
-
-    for child in product.iter():
-        tag_name = _local_name(child.tag)
-        if tag_name not in KNOWN_TAG_FIELDS:
-            continue
-
-        field_name = KNOWN_TAG_FIELDS[tag_name]
-        if field_name == "descripcion_html":
-            html_value = child.text or ""
-            record["descripcion_html"] = html_value.strip()
     return record
 
 
@@ -343,7 +429,7 @@ def parse_onix_file(xml_path: str | Path) -> list[dict[str, object]]:
     bisac_map = _load_bisac_tag_map()
     products: list[dict[str, object]] = []
     for _, element in ET.iterparse(path, events=("end",)):
-        if _local_name(element.tag) == "product":
+        if _is_tag(element, "product"):
             products.append(parse_product(element, bisac_map))
             element.clear()
 
@@ -377,17 +463,22 @@ def _default_output_path(xml_path: Path) -> Path:
     return xml_path.with_suffix(".json")
 
 
-def _insert_products_to_db(products: list[dict[str, object]], id_archivo: int | None = None) -> tuple[int, int]:
+def _insert_products_to_db(
+    products: list[dict[str, object]],
+    id_archivo: int | None = None,
+) -> tuple[int, int, int, int]:
     """
-    Insert products into the onix table using batch processing.
-    Uses executemany() for efficiency and ON CONFLICT for safety.
+    Insert products into the onix table using UPSERT and detailed counters.
     Args:
         products: List of product dictionaries to insert
         id_archivo: Optional foreign key to archivo table
-    Returns: (inserted_count, skipped_count)
+    Returns: (inserted_count, updated_count, skipped_count, unchanged_count)
     """
-    rows_to_insert = []
+    rows_to_upsert: list[tuple[str, str, str, str, str, str, str, str, str, str, int | None]] = []
     skipped = 0
+    inserted = 0
+    updated = 0
+    unchanged = 0
 
     # Prepare rows, filter out those without ISBN
     for product in products:
@@ -406,20 +497,20 @@ def _insert_products_to_db(products: list[dict[str, object]], id_archivo: int | 
         editorial = str(product.get("editorial", "")).strip()
         tag = str(product.get("tag", "")).strip()
 
-        rows_to_insert.append(
+        rows_to_upsert.append(
             (isbn, tipo_tapa, titulo, autor, lenguaje, audiencia, 
              descripcion, url_tapa, editorial, tag, id_archivo)
         )
 
-    if not rows_to_insert:
-        return 0, skipped
+    if not rows_to_upsert:
+        return 0, 0, skipped, 0
 
     conn = open_connection(ensure_schema=False)
     try:
         with conn:
             with conn.cursor() as cur:
-                # Use executemany for batch insert (more efficient than loop)
-                cur.executemany(
+                for row in rows_to_upsert:
+                    cur.execute(
                     """
                     INSERT INTO onix (isbn, tipo_tapa, titulo, autor, lenguaje, 
                                     audiencia, descripcion, url_tapa, editorial, tag, id_archivo)
@@ -435,18 +526,50 @@ def _insert_products_to_db(products: list[dict[str, object]], id_archivo: int | 
                         editorial = EXCLUDED.editorial,
                         tag = EXCLUDED.tag,
                         id_archivo = EXCLUDED.id_archivo
+                    WHERE (
+                        onix.tipo_tapa,
+                        onix.titulo,
+                        onix.autor,
+                        onix.lenguaje,
+                        onix.audiencia,
+                        onix.descripcion,
+                        onix.url_tapa,
+                        onix.editorial,
+                        onix.tag,
+                        onix.id_archivo
+                    ) IS DISTINCT FROM (
+                        EXCLUDED.tipo_tapa,
+                        EXCLUDED.titulo,
+                        EXCLUDED.autor,
+                        EXCLUDED.lenguaje,
+                        EXCLUDED.audiencia,
+                        EXCLUDED.descripcion,
+                        EXCLUDED.url_tapa,
+                        EXCLUDED.editorial,
+                        EXCLUDED.tag,
+                        EXCLUDED.id_archivo
+                    )
+                    RETURNING (xmax = 0) AS inserted
                     """,
-                    rows_to_insert,
-                )
+                    row,
+                    )
+
+                    result = cur.fetchone()
+                    if result is None:
+                        unchanged += 1
+                    elif result[0]:
+                        inserted += 1
+                    else:
+                        updated += 1
             conn.commit()
     except Exception as e:
         conn.rollback()
-        print(f"Error durante inserción en batch: {e}", file=sys.stderr)
+        print(f"Error durante inserción en base de datos: {e}", file=sys.stderr)
         raise
     finally:
         conn.close()
 
-    return len(rows_to_insert), skipped
+    return inserted, updated, skipped, unchanged
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -462,8 +585,13 @@ def main(argv: list[str] | None = None) -> int:
         products = parse_onix_file(xml_path)
 
         # Insert products into database with archivo reference
-        inserted, skipped = _insert_products_to_db(products, id_archivo)
-        print(f"Productos insertados: {inserted}, saltados: {skipped}")
+        inserted, updated, skipped, unchanged = _insert_products_to_db(products, id_archivo)
+        print("Resumen de carga ONIX:")
+        print(f"- Total leidos: {len(products)}")
+        print(f"- Registros insertados: {inserted}")
+        print(f"- Registros modificados: {updated}")
+        print(f"- Registros saltados: {skipped}")
+        print(f"- Registros sin cambios: {unchanged}")
 
         # Generate JSON output
         output_path = Path(args.output) if args.output else _default_output_path(xml_path)
