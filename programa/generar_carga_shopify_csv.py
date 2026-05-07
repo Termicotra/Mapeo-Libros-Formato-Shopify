@@ -75,7 +75,7 @@ def _cover_type(tipo_tapa: str) -> str:
     return ""
 
 
-def _fetch_onix_rows() -> list[dict[str, str]]:
+def _fetch_metadato_rows() -> list[dict[str, str]]:
     conn = open_connection(ensure_schema=False)
     try:
         with conn:
@@ -83,7 +83,7 @@ def _fetch_onix_rows() -> list[dict[str, str]]:
                 cur.execute(
                     """
                     SELECT isbn, titulo, descripcion, autor, lenguaje, tipo_tapa, tag, url_tapa
-                    FROM onix
+                    FROM metadato
                     ORDER BY isbn
                     """
                 )
@@ -152,7 +152,7 @@ def _build_row(record: dict[str, str]) -> dict[str, str]:
 
 
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(description="Genera un CSV de carga para Shopify desde la tabla onix.")
+    parser = argparse.ArgumentParser(description="Genera un CSV de carga para Shopify desde la tabla metadato.")
     parser.add_argument(
         "--output",
         default="carga_shopify.csv",
@@ -166,7 +166,7 @@ def main(argv: list[str] | None = None) -> int:
     output_path = Path(args.output)
 
     try:
-        records = _fetch_onix_rows()
+        records = _fetch_metadato_rows()
         with output_path.open("w", encoding="utf-8", newline="") as csv_file:
             writer = csv.DictWriter(csv_file, fieldnames=CSV_COLUMNS)
             writer.writeheader()

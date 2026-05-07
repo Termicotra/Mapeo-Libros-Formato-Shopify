@@ -7,7 +7,7 @@ import sys
 from pathlib import Path
 
 
-REQUIRED_TABLES = ("bisac", "onix")
+REQUIRED_TABLES = ("bisac", "metadato")
 SCHEMA_SQL_PATH = Path(__file__).with_name("generar_tablas_postgresql.sql")
 
 

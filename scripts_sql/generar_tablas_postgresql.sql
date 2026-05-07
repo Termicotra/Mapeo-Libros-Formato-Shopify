@@ -5,8 +5,8 @@ CREATE TABLE IF NOT EXISTS bisac (
     tag_shopify VARCHAR(255)
 );
 
-CREATE TABLE IF NOT EXISTS onix (
-    id_onix INTEGER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+CREATE TABLE IF NOT EXISTS metadato (
+    id_metadato INTEGER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
     isbn VARCHAR(20) NOT NULL UNIQUE,
     tipo_tapa VARCHAR(50),
     titulo TEXT,
@@ -19,7 +19,7 @@ CREATE TABLE IF NOT EXISTS onix (
 
     id_archivo INTEGER,
 
-    CONSTRAINT fk_onix_archivo
+    CONSTRAINT fk_metadato_archivo
     FOREIGN KEY (id_archivo)
     REFERENCES archivo(id_archivo)
     ON DELETE SET NULL

@@ -11,7 +11,9 @@ from xml.etree import ElementTree as ET
 
 from connect_postgres import open_connection
 
-
+############################
+#           ONIX            #
+############################
 TAG_ALIASES = {
     "b244": ("idvalue",),  # ISBN
     "b221": ("productidtype",),  # Tipo de id de producto (ISBN, etc.)
@@ -35,12 +37,14 @@ TAG_ALIASES = {
 }
 
 
+# Esto saca el nombre del tag sin el namespace, para que comparar sea mas facil.
 def _local_name(tag: str) -> str:
     if "}" in tag:
         return tag.rsplit("}", 1)[1]
     return tag
 
 
+# Acá chequeamos si un elemento coincide con un tag (corto o largo) usando aliases.
 def _is_tag(element: ET.Element, tag_name: str) -> bool:
     """Return True if element's local name matches tag_name or any of its aliases."""
     candidate_names = [tag_name, *TAG_ALIASES.get(tag_name.lower(), ())]
@@ -48,12 +52,14 @@ def _is_tag(element: ET.Element, tag_name: str) -> bool:
     return _local_name(element.tag).lower() in candidate_names
 
 
+# Limpia espacios raros y deja el texto prolijo para trabajar.
 def _clean_text(value: str | None) -> str:
     if not value:
         return ""
     return " ".join(value.split()).strip()
 
 
+# Recorre el XML y te va devolviendo cada Product que encuentre.
 def _iter_product_elements(root: ET.Element) -> Iterable[ET.Element]:
     if _is_tag(root, "product"):
         yield root
@@ -64,6 +70,7 @@ def _iter_product_elements(root: ET.Element) -> Iterable[ET.Element]:
             yield element
 
 
+# Busca el primer valor de texto para un tag (tambien contempla alias).
 def _first_text(element: ET.Element, tag_name: str) -> str:
     candidate_names = [tag_name, *TAG_ALIASES.get(tag_name.lower(), ())]
     candidate_names = {candidate.lower() for candidate in candidate_names if candidate}
@@ -74,6 +81,7 @@ def _first_text(element: ET.Element, tag_name: str) -> str:
     return ""
 
 
+# Trae de la base el mapa BISAC -> tags de Shopify.
 def _load_bisac_tag_map() -> list[dict[str, str]]:
     mappings: list[dict[str, str]] = []
 
@@ -104,10 +112,12 @@ def _load_bisac_tag_map() -> list[dict[str, str]]:
     return mappings
 
 
+# Parte un string de tags separados por coma y devuelve una lista limpia.
 def _split_shopify_tags(tag_value: str) -> list[str]:
     return [tag.strip() for tag in tag_value.split(",") if tag.strip()]
 
 
+# Arma variantes de clave BISAC para matchear mejor (exacta, prefijos, etc.).
 def _bisac_match_keys(bisac_code: str) -> list[str]:
     cleaned_code = bisac_code.strip().upper()
     if not cleaned_code:
@@ -132,6 +142,7 @@ def _bisac_match_keys(bisac_code: str) -> list[str]:
     return keys
 
 
+# Junta todos los tags de Shopify que correspondan segun los BISAC del producto.
 def _collect_shopify_tags(bisac_entries: list[dict[str, str]], bisac_map: list[dict[str, str]]) -> str:
     collected: list[str] = []
     seen: set[str] = set()
@@ -156,6 +167,7 @@ def _collect_shopify_tags(bisac_entries: list[dict[str, str]], bisac_map: list[d
     return ", ".join(collected)
 
 
+# Deja la lista final de tags sin repetidos y bien formateada.
 def _compose_final_tags(base_tags: list[str]) -> str:
     final_tags: list[str] = []
     seen: set[str] = set()
@@ -169,6 +181,7 @@ def _compose_final_tags(base_tags: list[str]) -> str:
     return ", ".join(final_tags)
 
 
+# Extrae hasta N entradas BISAC utiles desde los Subject del producto.
 def _bisac_entries(product: ET.Element, limit: int = 5) -> list[dict[str, str]]:
     entries: list[dict[str, str]] = []
 
@@ -200,6 +213,7 @@ def _bisac_entries(product: ET.Element, limit: int = 5) -> list[dict[str, str]]:
     return entries
 
 
+# Saca la version de ONIX desde el atributo release de ONIXMessage.
 def _extract_onix_version(root: ET.Element) -> str:
     """Extract ONIX version from release attribute in ONIXMessage element."""
     for element in root.iter():
@@ -211,6 +225,7 @@ def _extract_onix_version(root: ET.Element) -> str:
     return ""
 
 
+# Encuentra el proveedor en x300/AddresseeName.
 def _extract_proveedor(root: ET.Element) -> str:
     """Extract proveedor from x300 (AddresseeName) tag."""
     # Prefer direct element match (accepting aliases), fallback to _first_text
@@ -220,6 +235,7 @@ def _extract_proveedor(root: ET.Element) -> str:
     return _first_text(root, "x300")
 
 
+# Inserta (o recupera) el archivo en DB y devuelve su id_archivo.
 def _insert_archivo(
     xml_path: str | Path, root: ET.Element
 ) -> int:
@@ -268,6 +284,7 @@ def _insert_archivo(
         conn.close()
 
 
+# Construye el titulo final aplicando las reglas de titleelement.
 def _build_titulo(product: ET.Element) -> str:
     """
     Build title according to rules:
@@ -329,6 +346,7 @@ def _build_titulo(product: ET.Element) -> str:
     return " ".join(titulo_parts).strip()
 
 
+# Busca el ISBN que pertenezca al ProductIdentifier del tipo indicado.
 def _find_isbn_for_product(product: ET.Element, target_type: str = "15") -> str:
     """
     Find the IDValue (b244) that belongs to a ProductIdentifier whose
@@ -346,6 +364,7 @@ def _find_isbn_for_product(product: ET.Element, target_type: str = "15") -> str:
     return ""
 
 
+# Elige la mejor descripcion: prioriza texttype 03, luego 01, y si no el primer d104.
 def _extract_descripcion_html(product: ET.Element) -> str:
     """
     Extract the d104 text that follows x426=03.
@@ -389,6 +408,7 @@ def _extract_descripcion_html(product: ET.Element) -> str:
     return descripcion_01 or first_d104
 
 
+# Arma un diccionario final del producto con todos los campos que usamos.
 def parse_product(
     product: ET.Element,
     bisac_map: list[dict[str, str]],
@@ -421,6 +441,7 @@ def parse_product(
     return record
 
 
+# Lee un archivo ONIX completo y devuelve la lista de productos parseados.
 def parse_onix_file(xml_path: str | Path) -> list[dict[str, object]]:
     path = Path(xml_path)
     if not path.exists():
@@ -442,6 +463,7 @@ def parse_onix_file(xml_path: str | Path) -> list[dict[str, object]]:
     return products
 
 
+# Define los argumentos de linea de comandos del script.
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description="Lee un archivo ONIX XML y extrae los campos principales por producto."
@@ -459,16 +481,18 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
+# Si no pasas output, genera el .json al lado del XML.
 def _default_output_path(xml_path: Path) -> Path:
     return xml_path.with_suffix(".json")
 
 
+# Hace el UPSERT masivo en metadato y devuelve contadores de resultado.
 def _insert_products_to_db(
     products: list[dict[str, object]],
     id_archivo: int | None = None,
 ) -> tuple[int, int, int, int]:
     """
-    Insert products into the onix table using UPSERT and detailed counters.
+    Insert products into the metadato table using UPSERT and detailed counters.
     Args:
         products: List of product dictionaries to insert
         id_archivo: Optional foreign key to archivo table
@@ -512,7 +536,7 @@ def _insert_products_to_db(
                 for row in rows_to_upsert:
                     cur.execute(
                     """
-                    INSERT INTO onix (isbn, tipo_tapa, titulo, autor, lenguaje, 
+                    INSERT INTO metadato (isbn, tipo_tapa, titulo, autor, lenguaje, 
                                     audiencia, descripcion, url_tapa, editorial, tag, id_archivo)
                     VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                     ON CONFLICT (isbn) DO UPDATE SET
@@ -527,16 +551,16 @@ def _insert_products_to_db(
                         tag = EXCLUDED.tag,
                         id_archivo = EXCLUDED.id_archivo
                     WHERE (
-                        onix.tipo_tapa,
-                        onix.titulo,
-                        onix.autor,
-                        onix.lenguaje,
-                        onix.audiencia,
-                        onix.descripcion,
-                        onix.url_tapa,
-                        onix.editorial,
-                        onix.tag,
-                        onix.id_archivo
+                        metadato.tipo_tapa,
+                        metadato.titulo,
+                        metadato.autor,
+                        metadato.lenguaje,
+                        metadato.audiencia,
+                        metadato.descripcion,
+                        metadato.url_tapa,
+                        metadato.editorial,
+                        metadato.tag,
+                        metadato.id_archivo
                     ) IS DISTINCT FROM (
                         EXCLUDED.tipo_tapa,
                         EXCLUDED.titulo,
@@ -571,7 +595,10 @@ def _insert_products_to_db(
 
     return inserted, updated, skipped, unchanged
 
-
+############################
+#           MAIN            #
+############################
+# Orquesta todo: parsea XML, guarda en DB y exporta JSON.
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
 
@@ -586,7 +613,7 @@ def main(argv: list[str] | None = None) -> int:
 
         # Insert products into database with archivo reference
         inserted, updated, skipped, unchanged = _insert_products_to_db(products, id_archivo)
-        print("Resumen de carga ONIX:")
+        print("Resumen de carga:")
         print(f"- Total leidos: {len(products)}")
         print(f"- Registros insertados: {inserted}")
         print(f"- Registros modificados: {updated}")
