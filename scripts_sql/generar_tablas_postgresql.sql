@@ -2,7 +2,8 @@ CREATE TABLE IF NOT EXISTS bisac (
     id_bisac INTEGER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
     codigo VARCHAR(20) NOT NULL,
     categoria VARCHAR(255),
-    tag_shopify VARCHAR(255)
+    tag_shopify VARCHAR(255),
+    tag_shopify_ingles TEXT;
 );
 
 CREATE TABLE IF NOT EXISTS metadato (

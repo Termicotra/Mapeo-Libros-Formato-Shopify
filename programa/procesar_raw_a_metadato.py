@@ -378,6 +378,85 @@ def _transform_and_insert_to_metadato(
                         transformed_audiencia = _resolve_contained_mapped_value(audiencia, audiencia_map)
                         transformed_tag = _resolve_tag_value(tag, codigo_map, bisac_tags, default_tag)
 
+                        # If language resolved to English marker, include bisac tags
+                        # whose categoria contains 'ingles', and replace any existing tags
+                        # with their tag_shopify_ingles equivalents.
+                        if str(transformed_lenguaje).strip().lower() == "eng-english":
+                            try:
+                                # Step 1: Add tags from bisac records with categoria containing 'ingles'
+                                cur.execute(
+                                    """
+                                    SELECT tag_shopify
+                                    FROM bisac
+                                    WHERE COALESCE(categoria, '') <> ''
+                                      AND LOWER(categoria) LIKE %s
+                                    ORDER BY codigo
+                                    """,
+                                    ("%ingles%",),
+                                )
+
+                                extra_tags: list[str] = []
+                                for (tag_shopify,) in cur.fetchall():
+                                    if not tag_shopify:
+                                        continue
+                                    for part in str(tag_shopify).split(","):
+                                        p = part.strip()
+                                        if p:
+                                            extra_tags.append(p)
+
+                                # Step 2: For each current tag, find its tag_shopify_ingles equivalent
+                                current_tags = [t.strip() for t in str(transformed_tag).split(",") if t.strip()]
+                                replaced_tags: list[str] = []
+                                
+                                for current_tag in current_tags:
+                                    # Search for this tag in bisac (handle comma-separated values in tag_shopify)
+                                    # First, try to find an exact match
+                                    cur.execute(
+                                        """
+                                        SELECT tag_shopify, tag_shopify_ingles
+                                        FROM bisac
+                                        WHERE COALESCE(tag_shopify, '') <> ''
+                                          AND COALESCE(tag_shopify_ingles, '') <> ''
+                                        ORDER BY codigo
+                                        """,
+                                    )
+                                    
+                                    found_english = None
+                                    current_tag_lower = current_tag.lower().strip()
+                                    
+                                    for tag_shopify_val, tag_shopify_ingles_val in cur.fetchall():
+                                        # Split the comma-separated tags and check for match
+                                        for individual_tag in str(tag_shopify_val).split(","):
+                                            if individual_tag.strip().lower() == current_tag_lower:
+                                                found_english = str(tag_shopify_ingles_val).strip()
+                                                break
+                                        if found_english:
+                                            break
+                                    
+                                    if found_english:
+                                        # Use the English version
+                                        replaced_tags.append(found_english)
+                                    else:
+                                        # Keep the original tag if no English version found
+                                        replaced_tags.append(current_tag)
+
+                                # Step 3: Merge all tags (replaced + extra) without duplicates
+                                all_tags = replaced_tags + extra_tags
+                                merged: list[str] = []
+                                seen: set[str] = set()
+                                for t in all_tags:
+                                    key = t.strip().lower()
+                                    if key and key not in seen:
+                                        seen.add(key)
+                                        merged.append(t.strip())
+                                
+                                if merged:
+                                    transformed_tag = ", ".join(merged)
+                            except Exception:
+                                # If anything goes wrong here, don't fail the whole import;
+                                # keep the original transformed_tag and continue.
+                                pass
+
                         values = (
                             isbn,
                             transformed_tipo_tapa,
@@ -514,7 +593,6 @@ def main() -> int:
     except Exception as exc:
         print(f"Error fatal durante procesamiento: {exc}", file=sys.stderr)
         return 1
-
-
+ 
 if __name__ == "__main__":
     raise SystemExit(main())
