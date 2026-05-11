@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import argparse
-import json
 import sys
 from pathlib import Path
 from typing import Iterable
@@ -100,8 +99,8 @@ def _load_bisac_tag_map() -> list[dict[str, str]]:
                 )
 
                 for codigo, tag_shopify in cur.fetchall():
-                    clean_codigo = (codigo or "").strip()
-                    clean_tag = (tag_shopify or "").strip()
+                    clean_codigo = (codigo or "").strip().lower()
+                    clean_tag = (tag_shopify or "").strip().lower()
                     if clean_codigo and clean_tag:
                         mappings.append(
                             {"codigo": clean_codigo, "tag_shopify": clean_tag}
@@ -110,6 +109,28 @@ def _load_bisac_tag_map() -> list[dict[str, str]]:
         conn.close()
 
     return mappings
+
+
+def _load_default_shopify_tag() -> str:
+    """Load the Shopify tag configured for the BISAC `default` category."""
+    conn = open_connection(ensure_schema=False)
+    try:
+        with conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    SELECT tag_shopify
+                    FROM bisac
+                    WHERE COALESCE(categoria, '') = 'default'
+                      AND COALESCE(tag_shopify, '') <> ''
+                    ORDER BY codigo NULLS LAST
+                    LIMIT 1
+                    """
+                )
+                result = cur.fetchone()
+                return str(result[0]).strip().lower() if result and result[0] else ""
+    finally:
+        conn.close()
 
 
 # Parte un string de tags separados por coma y devuelve una lista limpia.
@@ -409,19 +430,17 @@ def _extract_descripcion_html(product: ET.Element) -> str:
 
 
 # Arma un diccionario final del producto con todos los campos que usamos.
+def _compose_raw_tag(bisac_entries: list[dict[str, str]]) -> str:
+    """Compose the raw tag directly from ONIX BISAC codes (up to 5)."""
+    raw_tags = [entry.get("codigo", "").strip() for entry in bisac_entries if entry.get("codigo", "").strip()]
+    return ", ".join(raw_tags[:5])
+
+
 def parse_product(
     product: ET.Element,
-    bisac_map: list[dict[str, str]],
 ) -> dict[str, object]:
     bisac_entries = _bisac_entries(product)
-    shopify_tags = _collect_shopify_tags(bisac_entries, bisac_map)
     lenguaje = _first_text(product, "b252")
-
-    base_tags = ["todos los libros"]
-    if shopify_tags:
-        base_tags.extend(_split_shopify_tags(shopify_tags))
-    if lenguaje == "eng":
-        base_tags.append("books in english")
 
     record: dict[str, object] = {
         # Use the ISBN only when it's the IDValue for a ProductIdentifier
@@ -436,7 +455,7 @@ def parse_product(
         "url_tapa": _first_text(product, "x435"),
         "editorial": _first_text(product, "b081"),
         "bisac": bisac_entries,
-        "tag": _compose_final_tags(base_tags),
+        "tag": _compose_raw_tag(bisac_entries),
     }
     return record
 
@@ -447,17 +466,16 @@ def parse_onix_file(xml_path: str | Path) -> list[dict[str, object]]:
     if not path.exists():
         raise FileNotFoundError(f"No existe el archivo ONIX: {path}")
 
-    bisac_map = _load_bisac_tag_map()
     products: list[dict[str, object]] = []
     for _, element in ET.iterparse(path, events=("end",)):
         if _is_tag(element, "product"):
-            products.append(parse_product(element, bisac_map))
+            products.append(parse_product(element))
             element.clear()
 
     if not products:
         root = ET.parse(path).getroot()
         products.extend(
-            parse_product(element, bisac_map) for element in _iter_product_elements(root)
+            parse_product(element) for element in _iter_product_elements(root)
         )
 
     return products
@@ -466,24 +484,10 @@ def parse_onix_file(xml_path: str | Path) -> list[dict[str, object]]:
 # Define los argumentos de linea de comandos del script.
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        description="Lee un archivo ONIX XML y extrae los campos principales por producto."
+        description="Lee un archivo ONIX XML y carga los datos en la tabla raw."
     )
     parser.add_argument("xml_path", help="Ruta al archivo ONIX XML a procesar")
-    parser.add_argument(
-        "--output",
-        help="Ruta del archivo JSON de salida. Por defecto usa el mismo directorio que el XML de entrada.",
-    )
-    parser.add_argument(
-        "--pretty",
-        action="store_true",
-        help="Imprime el resultado con sangría legible.",
-    )
     return parser
-
-
-# Si no pasas output, genera el .json al lado del XML.
-def _default_output_path(xml_path: Path) -> Path:
-    return xml_path.with_suffix(".json")
 
 
 # Hace el UPSERT masivo en metadato y devuelve contadores de resultado.
@@ -498,7 +502,7 @@ def _insert_products_to_db(
         id_archivo: Optional foreign key to archivo table
     Returns: (inserted_count, updated_count, skipped_count, unchanged_count)
     """
-    rows_to_upsert: list[tuple[str, str, str, str, str, str, str, str, str, str, int | None]] = []
+    rows_to_upsert: list[tuple[str, str, str, str, str, str, str, str, str, str, str, int | None]] = []
     skipped = 0
     inserted = 0
     updated = 0
@@ -516,13 +520,13 @@ def _insert_products_to_db(
         autor = str(product.get("autor", "")).strip()
         lenguaje = str(product.get("lenguaje", "")).strip()
         audiencia = str(product.get("audiencia", "")).strip()
-        descripcion = str(product.get("descripcion_html", "")).strip()
+        descripcion = str(product.get("descripcion", product.get("descripcion_html", ""))).strip()
         url_tapa = str(product.get("url_tapa", "")).strip()
         editorial = str(product.get("editorial", "")).strip()
         tag = str(product.get("tag", "")).strip()
 
         rows_to_upsert.append(
-            (isbn, tipo_tapa, titulo, autor, lenguaje, audiencia, 
+            (isbn, tipo_tapa, titulo, autor, lenguaje, audiencia,
              descripcion, url_tapa, editorial, tag, id_archivo)
         )
 
@@ -536,7 +540,7 @@ def _insert_products_to_db(
                 for row in rows_to_upsert:
                     cur.execute(
                     """
-                    INSERT INTO metadato (isbn, tipo_tapa, titulo, autor, lenguaje, 
+                    INSERT INTO metadato (isbn, tipo_tapa, titulo, autor, lenguaje,
                                     audiencia, descripcion, url_tapa, editorial, tag, id_archivo)
                     VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                     ON CONFLICT (isbn) DO UPDATE SET
@@ -595,6 +599,120 @@ def _insert_products_to_db(
 
     return inserted, updated, skipped, unchanged
 
+
+# Inserta datos crudos en la tabla raw sin transformación.
+def _insert_products_to_raw(
+    products: list[dict[str, object]],
+    id_archivo: int | None = None,
+) -> tuple[int, int, int, int, int]:
+    """
+    Insert or update raw products into the raw table without any transformation.
+    Args:
+        products: List of product dictionaries to insert
+        id_archivo: Optional foreign key to archivo table
+    Returns: (inserted_count, updated_count, unchanged_count, skipped_count, error_count)
+    """
+    rows_to_insert: list[tuple[str, str, str, str, str, str, str, str, str, str, str, int | None]] = []
+    skipped = 0
+    inserted = 0
+    updated = 0
+    unchanged = 0
+    error = 0
+
+    # Prepare rows, filter out those without ISBN
+    for product in products:
+        isbn = str(product.get("isbn", "")).strip()
+        if not isbn:
+            skipped += 1
+            continue
+
+        tipo_tapa = str(product.get("tipo_tapa", "")).strip()
+        titulo = str(product.get("titulo", "")).strip()
+        autor = str(product.get("autor", "")).strip()
+        lenguaje = str(product.get("lenguaje", "")).strip()
+        audiencia = str(product.get("audiencia", "")).strip()
+        descripcion = str(product.get("descripcion", product.get("descripcion_html", ""))).strip()
+        url_tapa = str(product.get("url_tapa", "")).strip()
+        editorial = str(product.get("editorial", "")).strip()
+        tag = str(product.get("tag", "")).strip()
+
+        rows_to_insert.append(
+            (isbn, tipo_tapa, titulo, autor, lenguaje, audiencia,
+             descripcion, url_tapa, editorial, tag, id_archivo)
+        )
+
+    if not rows_to_insert:
+        return 0, 0, 0, skipped, 0
+
+    conn = open_connection(ensure_schema=False)
+    try:
+        with conn:
+            with conn.cursor() as cur:
+                for row in rows_to_insert:
+                    try:
+                        cur.execute(
+                            """
+                            INSERT INTO raw (isbn, tipo_tapa, titulo, autor, lenguaje,
+                                        audiencia, descripcion, url_tapa, editorial, tag, id_archivo)
+                            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                            ON CONFLICT (isbn) DO UPDATE SET
+                                tipo_tapa = EXCLUDED.tipo_tapa,
+                                titulo = EXCLUDED.titulo,
+                                autor = EXCLUDED.autor,
+                                lenguaje = EXCLUDED.lenguaje,
+                                audiencia = EXCLUDED.audiencia,
+                                descripcion = EXCLUDED.descripcion,
+                                url_tapa = EXCLUDED.url_tapa,
+                                editorial = EXCLUDED.editorial,
+                                tag = EXCLUDED.tag,
+                                id_archivo = EXCLUDED.id_archivo
+                            WHERE (
+                                raw.tipo_tapa,
+                                raw.titulo,
+                                raw.autor,
+                                raw.lenguaje,
+                                raw.audiencia,
+                                raw.descripcion,
+                                raw.url_tapa,
+                                raw.editorial,
+                                raw.tag,
+                                raw.id_archivo
+                            ) IS DISTINCT FROM (
+                                EXCLUDED.tipo_tapa,
+                                EXCLUDED.titulo,
+                                EXCLUDED.autor,
+                                EXCLUDED.lenguaje,
+                                EXCLUDED.audiencia,
+                                EXCLUDED.descripcion,
+                                EXCLUDED.url_tapa,
+                                EXCLUDED.editorial,
+                                EXCLUDED.tag,
+                                EXCLUDED.id_archivo
+                            )
+                            RETURNING xmax = 0 AS is_insert
+                            """,
+                            row,
+                        )
+                        result = cur.fetchone()
+                        if result is None:
+                            unchanged += 1
+                        elif result[0]:
+                            inserted += 1
+                        else:
+                            updated += 1
+                    except Exception as e:
+                        error += 1
+                        print(f"Error insertando/actualizando ISBN {row[0]}: {e}", file=sys.stderr)
+            conn.commit()
+    except Exception as e:
+        conn.rollback()
+        print(f"Error durante inserción/actualización en tabla raw: {e}", file=sys.stderr)
+        raise
+    finally:
+        conn.close()
+
+    return inserted, updated, unchanged, skipped, error
+
 ############################
 #           MAIN            #
 ############################
@@ -611,28 +729,16 @@ def main(argv: list[str] | None = None) -> int:
         
         products = parse_onix_file(xml_path)
 
-        # Insert products into database with archivo reference
-        inserted, updated, skipped, unchanged = _insert_products_to_db(products, id_archivo)
-        print("Resumen de carga:")
+        # Insert raw products into raw table without transformation
+        inserted, updated, unchanged, skipped, error = _insert_products_to_raw(products, id_archivo)
+        print("Resumen de carga en tabla raw:")
         print(f"- Total leidos: {len(products)}")
-        print(f"- Registros insertados: {inserted}")
-        print(f"- Registros modificados: {updated}")
-        print(f"- Registros saltados: {skipped}")
+        print(f"- Registros insertados en raw: {inserted}")
+        print(f"- Registros actualizados en raw: {updated}")
         print(f"- Registros sin cambios: {unchanged}")
+        print(f"- Registros saltados (sin ISBN): {skipped}")
+        print(f"- Errores de inserción/actualización: {error}")
 
-        # Generate JSON output
-        output_path = Path(args.output) if args.output else _default_output_path(xml_path)
-        output_path.write_text(
-            json.dumps(
-                products,
-                ensure_ascii=False,
-                indent=2 if args.pretty else None,
-            )
-            + "\n",
-            encoding="utf-8",
-        )
-
-        print(f"JSON generado en: {output_path}")
         return 0
     except Exception as exc:
         print(f"Error al leer el archivo ONIX: {exc}", file=sys.stderr)
