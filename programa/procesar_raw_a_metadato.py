@@ -372,11 +372,23 @@ def _transform_and_insert_to_metadato(
                         audiencia = record["audiencia"]
                         tag = record["tag"]
 
+                        # Before resolving tags, include audiencia raw into tag source if not present.
+                        # This must happen before the language-specific tag replacements.
+                        combined_tag_source = str(tag).strip()
+                        if audiencia:
+                            existing_tags = [t.strip().lower() for t in combined_tag_source.split(",") if t.strip()]
+                            audiencia_clean = audiencia.strip()
+                            if audiencia_clean and audiencia_clean.lower() not in existing_tags:
+                                if combined_tag_source:
+                                    combined_tag_source = f"{combined_tag_source}, {audiencia_clean}"
+                                else:
+                                    combined_tag_source = audiencia_clean
+
                         # Apply transformations
                         transformed_tipo_tapa = _resolve_contained_mapped_value(tipo_tapa, tapa_map)
                         transformed_lenguaje = _resolve_contained_mapped_value(lenguaje, idioma_map)
                         transformed_audiencia = _resolve_contained_mapped_value(audiencia, audiencia_map)
-                        transformed_tag = _resolve_tag_value(tag, codigo_map, bisac_tags, default_tag)
+                        transformed_tag = _resolve_tag_value(combined_tag_source, codigo_map, bisac_tags, default_tag)
 
                         # If language resolved to English marker, include bisac tags
                         # whose categoria contains 'ingles', and replace any existing tags

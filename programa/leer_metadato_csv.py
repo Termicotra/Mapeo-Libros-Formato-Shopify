@@ -9,81 +9,9 @@ import sys
 import re
 import unicodedata
 from pathlib import Path
-from typing import Iterable
 
 from connect_postgres import open_connection
 from provider_config import detect_provider_by_delimiter, ProviderConfig
-
-
-# Carga el mapa BISAC -> tags de Shopify de la tabla bisac.
-def _load_bisac_tag_map() -> list[str]:
-    """
-    Load Shopify tags from the database and return them as a flat list.
-    Each `tag_shopify` row may contain multiple comma-separated tags, so we
-    split them here and keep only the individual tags.
-    """
-    tags: list[str] = []
-    seen: set[str] = set()
-
-    conn = open_connection(ensure_schema=False)
-    try:
-        with conn:
-            with conn.cursor() as cur:
-                cur.execute(
-                    """
-                    SELECT codigo, tag_shopify
-                    FROM bisac
-                    WHERE COALESCE(codigo, '') <> '' AND COALESCE(tag_shopify, '') <> ''
-                    """
-                )
-
-                for _, tag_shopify in cur.fetchall():
-                    if not tag_shopify:
-                        continue
-
-                    for raw_tag in tag_shopify.split(","):
-                        clean_tag = raw_tag.strip().lower()
-                        if clean_tag and clean_tag not in seen:
-                            seen.add(clean_tag)
-                            tags.append(clean_tag)
-    finally:
-        conn.close()
-
-    return tags
-
-
-def _load_default_shopify_tag() -> str:
-    """Load the Shopify tag configured for the BISAC `default` category."""
-    conn = open_connection(ensure_schema=False)
-    try:
-        with conn:
-            with conn.cursor() as cur:
-                cur.execute(
-                    """
-                    SELECT tag_shopify
-                    FROM bisac
-                    WHERE COALESCE(categoria, '') = 'default'
-                      AND COALESCE(tag_shopify, '') <> ''
-                    ORDER BY codigo NULLS LAST
-                    LIMIT 1
-                    """
-                )
-                result = cur.fetchone()
-                return str(result[0]).strip().lower() if result and result[0] else ""
-    finally:
-        conn.close()
-
-
-# Normaliza texto para que comparar sea más estable.
-def _normalize_for_match(value: str) -> str:
-    if not value:
-        return ""
-
-    normalized = unicodedata.normalize("NFKD", value)
-    normalized = "".join(character for character in normalized if not unicodedata.combining(character))
-    normalized = normalized.lower()
-    normalized = re.sub(r"[^a-z0-9]+", " ", normalized)
-    return re.sub(r"\s+", " ", normalized).strip()
 
 
 # Deja autores sin caracteres especiales y usa guion como separador.
@@ -102,36 +30,6 @@ def _normalize_authors(value: str) -> str:
     normalized = re.sub(r"-{2,}", "-", normalized)
     normalized = re.sub(r"\s+", " ", normalized)
     return normalized.strip(" -")
-
-
-# Busca coincidencias entre palabras del campo IBIC y los tags de bisac.
-def _match_ibic_words_to_tags(csv_value: str, bisac_tags: list[str]) -> list[str]:
-    """
-    Compare the CSV text against each individual Shopify tag.
-    We only keep tags that appear as whole words/phrases in the CSV text,
-    which avoids pulling unrelated tags from broad substring matches.
-    """
-    if not csv_value or not bisac_tags:
-        return []
-
-    normalized_csv = _normalize_for_match(csv_value)
-    if not normalized_csv:
-        return []
-
-    matched_tags: list[str] = []
-    seen: set[str] = set()
-
-    for tag_shopify in bisac_tags:
-        normalized_tag = _normalize_for_match(tag_shopify)
-        if not normalized_tag:
-            continue
-
-        pattern = rf"\b{re.escape(normalized_tag)}\b"
-        if re.search(pattern, normalized_csv) and tag_shopify not in seen:
-            seen.add(tag_shopify)
-            matched_tags.append(tag_shopify)
-
-    return matched_tags
 
 
 # Inserta (o recupera) el archivo CSV en DB y devuelve su id_archivo.
