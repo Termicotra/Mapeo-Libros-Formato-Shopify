@@ -29,13 +29,16 @@ class ProviderConfig:
     - url_tapa: Cover URL column name
     - editorial: Publisher column name
     - tag: Tag/Category column name
+
+    Optional additional fields:
+    - subtitulo: Subtitle column name (when present, can be concatenated to `titulo`)
     """
 
 
 # Planeta provider configuration
 PLANETA = ProviderConfig(
     name="planeta",
-    delimiter=";",
+    delimiter=",",
     field_mapping={
         "isbn": "EAN",
         "titulo": "TITULO",
@@ -54,6 +57,49 @@ PLANETA = ProviderConfig(
 PROVIDERS = {
     "planeta": PLANETA,
 }
+
+
+# Penguin Random House Argentina
+PENGUIN_RH_ARG = ProviderConfig(
+    name="penguin_random_house_argentina",
+    delimiter=";",
+    field_mapping={
+        "isbn": "isbn",
+        "titulo": "título",
+        "subtitulo": "subtitulo",
+        "autor": "autor/es",
+        "tipo_tapa": "",
+        "lenguaje": "idioma",
+        "audiencia": "target edad",
+        "descripcion": "descripción breve",
+        "url_tapa": "portada",
+        "editorial": "sello",
+        "tag": "keywords",
+    },
+)
+
+PROVIDERS["penguin_random_house_argentina"] = PENGUIN_RH_ARG
+
+
+# Heliasta
+HELIASTA = ProviderConfig(
+    name="heliasta",
+    delimiter=";",
+    field_mapping={
+        "isbn": "isbn",
+        "titulo": "título",
+        "autor": "autor / ilustrador",
+        "tipo_tapa": "Encuad",
+        "lenguaje": "",
+        "audiencia": "",
+        "descripcion": "descripción",
+        "url_tapa": "tapa",
+        "editorial": "sello",
+        "tag": "",
+    },
+)
+
+PROVIDERS["heliasta"] = HELIASTA
 
 
 def detect_provider_by_delimiter(first_line: str) -> ProviderConfig | None:

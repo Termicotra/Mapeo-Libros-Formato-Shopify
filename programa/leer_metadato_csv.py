@@ -105,11 +105,22 @@ def _map_row_to_record(row: dict[str, str], provider: ProviderConfig) -> dict[st
         if v is not None and str(v).strip():
             return _normalize_text(v)
         return ""
-
     # Map fields using provider configuration
+    # Support composed title: if provider provides a "subtitulo" mapping, concatenate.
     isbn = pick("isbn")
     tipo_tapa = pick("tipo_tapa")
-    titulo = pick("titulo")
+    titulo_main = pick("titulo")
+    subtitulo = ""
+    subt_col = provider.field_mapping.get("subtitulo")
+    if subt_col:
+        subt_val = norm.get(subt_col.lower())
+        if subt_val is not None and str(subt_val).strip():
+            subtitulo = _normalize_text(subt_val)
+
+    if titulo_main and subtitulo:
+        titulo = f"{titulo_main} {subtitulo}".strip()
+    else:
+        titulo = titulo_main
     autor = pick("autor")
     lenguaje = pick("lenguaje")
     audiencia = pick("audiencia")
@@ -172,20 +183,40 @@ def read_csv(path: Path) -> tuple[list[dict[str, object]], ProviderConfig]:
     records: list[dict[str, object]] = []
     provider: ProviderConfig | None = None
     
-    # Detect delimiter and provider by reading first line
-    with path.open(newline="", encoding="latin-1") as fh:
-        first_line = fh.readline()
-        provider = detect_provider_by_delimiter(first_line)
-        
-        if not provider:
-            raise ValueError(
-                f"No se pudo detectar el proveedor del archivo CSV: {path}\n"
-                f"Encabezado: {first_line[:100]}"
-            )
-        
-        print(f"✓ Proveedor detectado: {provider.name}")
-        
-        fh.seek(0)
+    # Detect delimiter and provider by reading first line. Try common encodings
+    encodings_to_try = ["utf-8-sig", "utf-8", "latin-1"]
+    provider = None
+    chosen_encoding: str | None = None
+
+    for enc in encodings_to_try:
+        try:
+            with path.open(newline="", encoding=enc) as fh:
+                first_line = fh.readline()
+                # Remove BOM if present (in case utf-8 without -sig is used)
+                if first_line.startswith('\ufeff'):
+                    first_line = first_line[1:]
+                prov = detect_provider_by_delimiter(first_line)
+                if prov:
+                    provider = prov
+                    chosen_encoding = enc
+                    break
+        except Exception:
+            # Try next encoding
+            continue
+
+    if not provider:
+        # Try one last time with latin-1 to capture a readable header for the error message
+        with path.open(newline="", encoding="latin-1") as fh:
+            first_line = fh.readline()
+        raise ValueError(
+            f"No se pudo detectar el proveedor del archivo CSV: {path}\n"
+            f"Encabezado (probado latin-1): {first_line[:100]}"
+        )
+
+    print(f"✓ Proveedor detectado: {provider.name} (encoding={chosen_encoding})")
+
+    # Re-open with the chosen encoding and read rows
+    with path.open(newline="", encoding=chosen_encoding) as fh:
         reader = csv.DictReader(fh, delimiter=provider.delimiter)
         for row in reader:
             records.append(_map_row_to_record(row, provider))
