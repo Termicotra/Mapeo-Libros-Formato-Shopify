@@ -48,9 +48,12 @@ def _insert_archivo_csv(csv_path: Path, provider_name: str = "") -> int:
                 cur.execute(
                     """
                     WITH inserted AS (
-                        INSERT INTO archivo (nombre, proveedor, onix_version)
-                        VALUES (%s, %s, %s)
-                        ON CONFLICT (nombre) DO NOTHING
+                        INSERT INTO archivo (nombre, proveedor, onix_version, fecha_procesamiento)
+                        VALUES (%s, %s, %s, CURRENT_DATE)
+                        ON CONFLICT (nombre) DO UPDATE SET
+                            proveedor = EXCLUDED.proveedor,
+                            onix_version = EXCLUDED.onix_version,
+                            fecha_procesamiento = EXCLUDED.fecha_procesamiento
                         RETURNING id_archivo
                     )
                     SELECT id_archivo FROM inserted
@@ -58,7 +61,7 @@ def _insert_archivo_csv(csv_path: Path, provider_name: str = "") -> int:
                     SELECT id_archivo FROM archivo WHERE nombre = %s
                     LIMIT 1
                     """,
-                    (nombre, provider_name or '', '' , nombre),
+                    (nombre, provider_name or '', '', nombre),
                 )
                 result = cur.fetchone()
                 id_archivo = result[0] if result else None

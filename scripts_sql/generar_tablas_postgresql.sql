@@ -32,7 +32,8 @@ CREATE TABLE archivo (
     id_archivo INTEGER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
     nombre TEXT UNIQUE,
     proveedor TEXT,
-    onix_version TEXT
+    onix_version TEXT,
+    fecha_procesamiento DATE
 );
 
 CREATE TABLE idioma (

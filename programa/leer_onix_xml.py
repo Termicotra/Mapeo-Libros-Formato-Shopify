@@ -279,9 +279,12 @@ def _insert_archivo(
                 cur.execute(
                     """
                     WITH inserted AS (
-                        INSERT INTO archivo (nombre, proveedor, onix_version)
-                        VALUES (%s, %s, %s)
-                        ON CONFLICT (nombre) DO NOTHING
+                        INSERT INTO archivo (nombre, proveedor, onix_version, fecha_procesamiento)
+                        VALUES (%s, %s, %s, CURRENT_DATE)
+                        ON CONFLICT (nombre) DO UPDATE SET
+                            proveedor = EXCLUDED.proveedor,
+                            onix_version = EXCLUDED.onix_version,
+                            fecha_procesamiento = EXCLUDED.fecha_procesamiento
                         RETURNING id_archivo
                     )
                     SELECT id_archivo

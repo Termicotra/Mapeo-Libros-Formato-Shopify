@@ -135,6 +135,28 @@ def detect_provider_by_delimiter(first_line: str) -> ProviderConfig | None:
     return None
 
 
+# General provider (user-specified generic CSV)
+GENERAL = ProviderConfig(
+    name="general",
+    delimiter=";",
+    field_mapping={
+        "isbn": "Handle",
+        "titulo": "Title",
+        "subtitulo": "",
+        "autor": "Vendor",
+        "tipo_tapa": "Tipo de encuadernacion",
+        "lenguaje": "Idioma",
+        "audiencia": "Publico Objetivo",
+        "descripcion": "Body (HTML)",
+        "url_tapa": "Portada",
+        "editorial": "",
+        "tag": "Tags",
+    },
+)
+
+PROVIDERS["general"] = GENERAL
+
+
 def get_provider(name: str) -> ProviderConfig | None:
     """Get provider configuration by name.
     
